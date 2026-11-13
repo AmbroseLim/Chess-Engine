@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: 44 31% 96%;
+    --foreground: 28 15% 12%;
+    --primary: 150 47% 34%;
+    --primary-foreground: 45 33% 96%;
+    --secondary: 42 22% 90%;
+    --secondary-foreground: 28 15% 14%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --muted: 42 20% 89%;
+    --muted-foreground: 28 10% 41%;
+    --accent: 24 82% 50%;
+    --accent-foreground: 45 33% 96%;
+    --border: 38 16% 78%;
+  }
+
+  .theme-light {
+    color-scheme: light;
+    --background: 44 31% 96%;
+    --foreground: 28 15% 12%;
+    --primary: 150 47% 34%;
+    --primary-foreground: 45 33% 96%;
+    --secondary: 42 22% 90%;
+    --secondary-foreground: 28 15% 14%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --muted: 42 20% 89%;
+    --muted-foreground: 28 10% 41%;
+    --accent: 24 82% 50%;
+    --accent-foreground: 45 33% 96%;
+    --border: 38 16% 78%;
+  }
+
+  .theme-dark,
+  .dark {
+    color-scheme: dark;
+    --background: 24 8% 8%;
+    --foreground: 42 22% 92%;
+    --primary: 154 48% 46%;
+    --primary-foreground: 160 22% 8%;
+    --secondary: 30 7% 15%;
+    --secondary-foreground: 42 22% 92%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 42 22% 92%;
+    --muted: 30 7% 17%;
+    --muted-foreground: 38 11% 66%;
+    --accent: 28 82% 56%;
+    --accent-foreground: 24 8% 8%;
+    --border: 30 8% 24%;
+  }
+
+  .theme-graphite {
+    color-scheme: dark;
+    --background: 210 9% 9%;
+    --foreground: 42 14% 91%;
+    --primary: 42 77% 58%;
+    --primary-foreground: 210 9% 9%;
+    --secondary: 210 8% 16%;
+    --secondary-foreground: 42 14% 91%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 42 14% 91%;
+    --muted: 210 8% 18%;
+    --muted-foreground: 42 8% 67%;
+    --accent: 170 47% 46%;
+    --accent-foreground: 210 9% 9%;
+    --border: 210 7% 25%;
+  }
+
+  .theme-tournament {
+    color-scheme: light;
+    --background: 88 22% 93%;
+    --foreground: 120 9% 13%;
+    --primary: 136 38% 33%;
+    --primary-foreground: 88 22% 96%;
+    --secondary: 72 20% 86%;
+    --secondary-foreground: 120 9% 13%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 88 22% 96%;
+    --muted: 72 20% 86%;
+    --muted-foreground: 112 8% 38%;
+    --accent: 34 80% 48%;
+    --accent-foreground: 88 22% 96%;
+    --border: 93 13% 72%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    min-width: 320px;
+  }
+}
