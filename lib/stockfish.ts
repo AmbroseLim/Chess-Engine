@@ -30,23 +30,16 @@ class StockfishEngine {
     if (typeof window === 'undefined') return null;
 
     try {
-      // Prefer loading the worker directly from the public/stockfish path so it keeps a proper origin
-      // This avoids COOP/COEP issues when creating a worker from a blob URL.
-      return new Worker('/stockfish/stockfish.wasm.js');
-    } catch (directError) {
-      console.warn('Direct worker creation failed, falling back to blob worker:', directError);
-      try {
-        // Fallback: fetch the worker script and create a blob URL
-        const response = await fetch('/stockfish/stockfish.wasm.js');
-        const scriptText = await response.text();
-        const blob = new Blob([scriptText], { type: 'application/javascript' });
-        const blobUrl = URL.createObjectURL(blob);
-
-        return new Worker(blobUrl);
-      } catch (error) {
-        console.error('Failed to load Stockfish worker (fallback):', error);
-        return null;
-      }
+      // Use the relaxed-simd build which doesn't require COEP/COOP headers (no pthreads)
+      // This works on GitHub Pages without special headers
+      const response = await fetch('/stockfish/sf_18_smallnet_relaxed-simd.js');
+      const scriptText = await response.text();
+      const blob = new Blob([scriptText], { type: 'application/javascript' });
+      const blobUrl = URL.createObjectURL(blob);
+      return new Worker(blobUrl);
+    } catch (error) {
+      console.error('Failed to load Stockfish worker:', error);
+      return null;
     }
   }
 
@@ -80,8 +73,28 @@ class StockfishEngine {
     });
   }
 
-  private enqueue(item: StockfishQueueItem) {
-    this.messageQueue.push(item);
+  private handleEngineMessage(message: string) {
+    if (this.messageQueue.length === 0) {
+      return;
+    }
+
+    const current = this.messageQueue[0];
+
+    if (message.startsWith('info') && current.onInfo) {
+      current.onInfo(message);
+    }
+
+    const isResponse =
+      (current.command.startsWith('go') && message.startsWith('bestmove')) ||
+      (current.command === 'uci' && message.startsWith('uciok')) ||
+      (current.command.startsWith('setoption') && message.startsWith('readyok')) ||
+      (current.command === 'isready' && message.startsWith('readyok'));
+
+    if (isResponse) {
+      this.messageQueue.shift();
+      current.callback?.(message);
+      this.processQueue();
+    }
   }
 
   private processQueue() {
@@ -98,29 +111,8 @@ class StockfishEngine {
     }
   }
 
-  private handleEngineMessage(message: string) {
-    if (this.messageQueue.length === 0) {
-      return;
-    }
-
-    const current = this.messageQueue[0];
-
-    if (message.startsWith('info') && current.onInfo) {
-      current.onInfo(message);
-    }
-
-    const isResponse =
-      (current.command.startsWith('go') && message.startsWith('bestmove')) ||
-      (current.command === 'uci' && message === 'uciok') ||
-      (current.command === 'isready' && message === 'readyok');
-
-    if (isResponse) {
-      this.messageQueue.shift();
-      if (current.callback) {
-        current.callback(message);
-      }
-      this.processQueue();
-    }
+  private enqueue(item: StockfishQueueItem) {
+    this.messageQueue.push(item);
   }
 
   private async ensureInitialized() {
@@ -172,8 +164,6 @@ class StockfishEngine {
         },
       });
 
-      this.processQueue();
-
       setTimeout(() => {
         if (this.messageQueue.length > 0 && this.messageQueue[0].command.startsWith('go')) {
           resolve({ evaluation: bestEval, depth: bestDepth });
@@ -216,8 +206,6 @@ class StockfishEngine {
           });
         },
       });
-
-      this.processQueue();
 
       setTimeout(() => {
         if (!bestMove) {

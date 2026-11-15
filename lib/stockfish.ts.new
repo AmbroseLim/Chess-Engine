@@ -1,0 +1,243 @@
+'use client';
+
+import { STOCKFISH_CONFIG, getEffectiveEngineElo } from './constants';
+import Stockfish from 'stockfish.js';
+
+export interface StockfishOptions {
+  elo?: number;
+  depth?: number;
+  time?: number;
+}
+
+interface BestMoveResponse {
+  move: string;
+  ponder?: string;
+  evaluation?: number;
+}
+
+interface StockfishQueueItem {
+  command: string;
+  callback?: (result: string) => void;
+  onInfo?: (message: string) => void;
+}
+
+class StockfishEngine {
+  private engine: any = null;
+  private initialized: boolean = false;
+  private currentElo: number = 1600;
+  private messageQueue: StockfishQueueItem[] = [];
+  private readyResolve: (() => void) | null = null;
+
+  private async createEngine() {
+    if (typeof window === 'undefined') return null;
+
+    try {
+      const StockfishFactory = (await import('stockfish.js')).default;
+      const engine = StockfishFactory();
+      
+      engine.onmessage = (event: MessageEvent) => {
+        const message = typeof event.data === 'string' ? event.data : String(event.data);
+        this.handleEngineMessage(message);
+      };
+
+      engine.onerror = (error: Error) => {
+        console.error('Stockfish engine error:', error);
+      };
+
+      return engine;
+    } catch (error) {
+      console.error('Failed to create Stockfish engine:', error);
+      return null;
+    }
+  }
+
+  async init(): Promise<void> {
+    if (this.initialized || typeof window === 'undefined') return;
+
+    this.engine?.terminate?.();
+    this.engine = await this.createEngine();
+
+    if (!this.engine) {
+      throw new Error('Stockfish engine could not be created.');
+    }
+
+    this.initialized = true;
+
+    return new Promise((resolve) => {
+      this.readyResolve = resolve;
+      this.engine.postMessage('uci');
+      this.engine.postMessage('setoption name UCI_LimitStrength value true');
+      this.engine.postMessage(`setoption name UCI_Elo value ${getEffectiveEngineElo(this.currentElo)}`);
+      this.engine.postMessage('isready');
+    });
+  }
+
+  private handleEngineMessage(message: string) {
+    if (this.messageQueue.length === 0 && !this.readyResolve) {
+      return;
+    }
+
+    if (this.readyResolve && message === 'readyok') {
+      this.readyResolve();
+      this.readyResolve = null;
+      this.processQueue();
+      return;
+    }
+
+    const current = this.messageQueue[0];
+
+    if (message.startsWith('info') && current?.onInfo) {
+      current.onInfo(message);
+    }
+
+    const isResponse =
+      (current?.command?.startsWith('go') && message.startsWith('bestmove')) ||
+      (current?.command?.startsWith('setoption') && message === 'readyok') ||
+      (current?.command === 'isready' && message === 'readyok');
+
+    if (isResponse && current) {
+      this.messageQueue.shift();
+      current.callback?.(message);
+      this.processQueue();
+    }
+  }
+
+  private processQueue() {
+    if (!this.engine || this.messageQueue.length === 0) {
+      return;
+    }
+
+    const current = this.messageQueue[0];
+    this.engine.postMessage(current.command);
+
+    if (!current.callback) {
+      this.messageQueue.shift();
+      this.processQueue();
+    }
+  }
+
+  private enqueue(item: StockfishQueueItem) {
+    this.messageQueue.push(item);
+    if (this.messageQueue.length === 1) {
+      this.processQueue();
+    }
+  }
+
+  private async ensureInitialized() {
+    if (!this.initialized) {
+      await this.init();
+    }
+  }
+
+  async setOption(name: string, value: string | number | boolean): Promise<void> {
+    await this.ensureInitialized();
+
+    return new Promise((resolve) => {
+      this.enqueue({ command: `setoption name ${name} value ${value}` });
+      this.enqueue({ command: 'isready', callback: () => resolve() });
+    });
+  }
+
+  async setElo(elo: number): Promise<void> {
+    this.currentElo = Math.max(STOCKFISH_CONFIG.MIN_ELO, Math.min(STOCKFISH_CONFIG.MAX_ELO, elo));
+    await this.setOption('UCI_LimitStrength', true);
+    await this.setOption('UCI_Elo', getEffectiveEngineElo(this.currentElo));
+  }
+
+  async evaluatePosition(fen: string): Promise<{ evaluation: number; depth: number }> {
+    await this.ensureInitialized();
+
+    return new Promise((resolve) => {
+      let bestEval = 0;
+      let bestDepth = 0;
+
+      this.enqueue({ command: 'ucinewgame' });
+      this.enqueue({ command: `position fen ${fen}` });
+      this.enqueue({
+        command: 'go depth 20',
+        onInfo: (message: string) => {
+          const depthMatch = message.match(/depth (\d+)/);
+          const scoreMatch = message.match(/score (?:cp|mate) (-?\d+)/);
+
+          if (depthMatch) {
+            bestDepth = parseInt(depthMatch[1], 10);
+          }
+          if (scoreMatch) {
+            bestEval = parseInt(scoreMatch[1], 10);
+          }
+        },
+        callback: () => {
+          resolve({ evaluation: bestEval, depth: bestDepth });
+        },
+      });
+
+      setTimeout(() => {
+        if (this.messageQueue.length > 0 && this.messageQueue[0].command.startsWith('go')) {
+          resolve({ evaluation: bestEval, depth: bestDepth });
+          this.messageQueue.shift();
+          this.processQueue();
+        }
+      }, 3000);
+    });
+  }
+
+  async getBestMove(
+    fen: string,
+    options: StockfishOptions = {}
+  ): Promise<BestMoveResponse> {
+    await this.ensureInitialized();
+
+    const { elo = this.currentElo, depth = 15, time = 1000 } = options;
+
+    if (elo !== this.currentElo) {
+      await this.setElo(elo);
+    }
+
+    return new Promise((resolve) => {
+      let bestMove = '';
+      let bestPonder = '';
+
+      this.enqueue({ command: 'ucinewgame' });
+      this.enqueue({ command: `position fen ${fen}` });
+      this.enqueue({
+        command: `go depth ${depth}`,
+        callback: (message: string) => {
+          if (message.startsWith('bestmove')) {
+            const parts = message.split(' ');
+            bestMove = parts[1] || 'e2e4';
+            bestPonder = parts[3] || '';
+          }
+          resolve({
+            move: bestMove,
+            ponder: bestPonder || undefined,
+          });
+        },
+      });
+
+      setTimeout(() => {
+        if (!bestMove) {
+          resolve({
+            move: 'e2e4',
+            ponder: undefined,
+          });
+        }
+      }, time);
+    });
+  }
+
+  async isReady(): Promise<boolean> {
+    return this.initialized && this.engine !== null;
+  }
+
+  quit(): void {
+    if (this.engine) {
+      this.engine.postMessage('quit');
+      this.engine.terminate?.();
+      this.engine = null;
+    }
+    this.messageQueue = [];
+    this.initialized = false;
+  }
+}
+
+export const stockfishEngine = new StockfishEngine();
