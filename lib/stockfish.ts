@@ -32,11 +32,8 @@ class StockfishEngine {
     try {
       // Use the relaxed-simd build which doesn't require COEP/COOP headers (no pthreads)
       // This works on GitHub Pages without special headers
-      const response = await fetch('/stockfish/sf_18_smallnet_relaxed-simd.js');
-      const scriptText = await response.text();
-      const blob = new Blob([scriptText], { type: 'application/javascript' });
-      const blobUrl = URL.createObjectURL(blob);
-      return new Worker(blobUrl);
+      // Create worker directly from URL so import.meta.url works for WASM loading
+      return new Worker('/stockfish/sf_18_smallnet_relaxed-simd.js');
     } catch (error) {
       console.error('Failed to load Stockfish worker:', error);
       return null;
